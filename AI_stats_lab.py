@@ -8,7 +8,6 @@ Do not change function names or return signatures.
 """
 
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
@@ -16,7 +15,7 @@ import numpy as np
 
 
 # =========================
-# Helpers (you may use these)
+# Helpers
 # =========================
 
 def add_bias_column(X: np.ndarray) -> np.ndarray:
@@ -32,8 +31,13 @@ def standardize_train_test(
 
     mu = X_train.mean(axis=0)
     sigma = X_train.std(axis=0, ddof=0)
+
     sigma = np.where(sigma == 0, 1.0, sigma)
-    return (X_train - mu) / sigma, (X_test - mu) / sigma, mu, sigma
+
+    X_train_std = (X_train - mu) / sigma
+    X_test_std = (X_test - mu) / sigma
+
+    return X_train_std, X_test_std, mu, sigma
 
 
 def mse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -45,11 +49,14 @@ def mse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 def r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     y_true = y_true.reshape(-1)
     y_pred = y_pred.reshape(-1)
+
     ss_res = np.sum((y_true - y_pred) ** 2)
     ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+
     if ss_tot == 0:
         return 0.0
-    return float(1.0 - ss_res / ss_tot)
+
+    return float(1 - ss_res / ss_tot)
 
 
 @dataclass
@@ -60,7 +67,7 @@ class GDResult:
 
 
 # =========================
-# Q1: Gradient descent + visualization data
+# Q1 Gradient Descent
 # =========================
 
 def gradient_descent_linreg(
@@ -79,27 +86,24 @@ def gradient_descent_linreg(
     else:
         theta = theta0.copy()
 
-    losses = []
-    thetas = []
+    losses = np.zeros(epochs)
+    thetas = np.zeros((epochs, d))
 
-    for _ in range(epochs):
+    for t in range(epochs):
 
         y_pred = X @ theta
         error = y_pred - y
 
         loss = np.mean(error ** 2)
-        losses.append(loss)
+        losses[t] = loss
 
         gradient = (2 / n) * (X.T @ error)
+
         theta = theta - lr * gradient
 
-        thetas.append(theta.copy())
+        thetas[t] = theta
 
-    return GDResult(
-        theta=theta,
-        losses=np.array(losses),
-        thetas=np.array(thetas),
-    )
+    return GDResult(theta=theta, losses=losses, thetas=thetas)
 
 
 def visualize_gradient_descent(
@@ -110,32 +114,29 @@ def visualize_gradient_descent(
 
     rng = np.random.default_rng(seed)
 
-    n = 50
+    n = 80
+
     X = rng.normal(size=(n, 1))
+    X_bias = add_bias_column(X)
+
     true_theta = np.array([2.0, 3.0])
 
-    X_bias = add_bias_column(X)
-    noise = rng.normal(scale=0.5, size=n)
+    noise = rng.normal(0, 0.3, size=n)
 
     y = X_bias @ true_theta + noise
 
-    result = gradient_descent_linreg(
-        X_bias,
-        y,
-        lr=lr,
-        epochs=epochs
-    )
+    res = gradient_descent_linreg(X_bias, y, lr=lr, epochs=epochs)
 
     return {
-        "theta_path": result.thetas[:, :2],
-        "losses": result.losses,
+        "theta_path": res.thetas[:, :2],
+        "losses": res.losses,
         "X": X_bias,
         "y": y,
     }
 
 
 # =========================
-# Q2: Diabetes regression using gradient descent
+# Q2 Diabetes GD
 # =========================
 
 def diabetes_linear_gd(
@@ -163,6 +164,7 @@ def diabetes_linear_gd(
 
     X_train = X[train_idx]
     X_test = X[test_idx]
+
     y_train = y[train_idx]
     y_test = y[test_idx]
 
@@ -171,14 +173,9 @@ def diabetes_linear_gd(
     X_train = add_bias_column(X_train)
     X_test = add_bias_column(X_test)
 
-    result = gradient_descent_linreg(
-        X_train,
-        y_train,
-        lr=lr,
-        epochs=epochs
-    )
+    res = gradient_descent_linreg(X_train, y_train, lr=lr, epochs=epochs)
 
-    theta = result.theta
+    theta = res.theta
 
     train_pred = X_train @ theta
     test_pred = X_test @ theta
@@ -193,7 +190,7 @@ def diabetes_linear_gd(
 
 
 # =========================
-# Q3: Diabetes regression using analytical solution
+# Q3 Analytical Solution
 # =========================
 
 def diabetes_linear_analytical(
@@ -205,6 +202,7 @@ def diabetes_linear_analytical(
     from sklearn.datasets import load_diabetes
 
     data = load_diabetes()
+
     X = data.data
     y = data.target
 
@@ -220,6 +218,7 @@ def diabetes_linear_analytical(
 
     X_train = X[train_idx]
     X_test = X[test_idx]
+
     y_train = y[train_idx]
     y_test = y[test_idx]
 
@@ -231,7 +230,11 @@ def diabetes_linear_analytical(
     d = X_train.shape[1]
 
     I = np.eye(d)
-    theta = np.linalg.inv(X_train.T @ X_train + ridge_lambda * I) @ (X_train.T @ y_train)
+
+    A = X_train.T @ X_train + ridge_lambda * I
+    b = X_train.T @ y_train
+
+    theta = np.linalg.solve(A, b)
 
     train_pred = X_train @ theta
     test_pred = X_test @ theta
@@ -246,7 +249,7 @@ def diabetes_linear_analytical(
 
 
 # =========================
-# Q4: Compare GD vs analytical
+# Q4 Compare
 # =========================
 
 def diabetes_compare_gd_vs_analytical(
@@ -270,9 +273,12 @@ def diabetes_compare_gd_vs_analytical(
 
     theta_l2_diff = np.linalg.norm(theta_gd - theta_an)
 
-    cosine_sim = np.dot(theta_gd, theta_an) / (
-        np.linalg.norm(theta_gd) * np.linalg.norm(theta_an)
-    )
+    denom = np.linalg.norm(theta_gd) * np.linalg.norm(theta_an)
+
+    if denom == 0:
+        cosine_sim = 0.0
+    else:
+        cosine_sim = np.dot(theta_gd, theta_an) / denom
 
     return {
         "theta_l2_diff": float(theta_l2_diff),
